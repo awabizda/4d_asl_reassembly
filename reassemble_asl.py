@@ -112,15 +112,40 @@ def process_subject(scanner_folder, derivatives_root):
         os.makedirs(derivatives, exist_ok=True)
         name = "sub-" + subject + "_" + session + "_asl"
 
-        # Convert each series in a temporary folder, then let FSL merge them.
+        # Convert each series in a temporary folder. These are usually 4D
+        # files, so appending one whole file after the other would put all Ctrl
+        # volumes first and all Tag volumes second. Extract and interleave
+        # matching volumes instead, so the data agrees with aslcontext.tsv.
         with tempfile.TemporaryDirectory() as temp:
             convert(first["folder"], temp, "first")
             convert(second["folder"], temp, "second")
+
+            first_count = int(subprocess.check_output([
+                "fslval", os.path.join(temp, "first.nii.gz"), "dim4"
+            ]).decode().strip())
+            second_count = int(subprocess.check_output([
+                "fslval", os.path.join(temp, "second.nii.gz"), "dim4"
+            ]).decode().strip())
+            if first_count != second_count:
+                raise RuntimeError(
+                    "Ctrl and Tag series have different volume counts for "
+                    + session + ": " + str(first_count) + " vs " + str(second_count)
+                )
+
+            ordered_volumes = []
+            for volume in range(first_count):
+                first_volume = os.path.join(temp, "first_" + str(volume) + ".nii.gz")
+                second_volume = os.path.join(temp, "second_" + str(volume) + ".nii.gz")
+                for source, destination in (("first.nii.gz", first_volume), ("second.nii.gz", second_volume)):
+                    subprocess.run([
+                        "fslroi", os.path.join(temp, source), destination,
+                        "0", "-1", "0", "-1", "0", "-1", str(volume), "1",
+                    ], check=True)
+                ordered_volumes.extend([first_volume, second_volume])
+
             subprocess.run([
                 "fslmerge", "-t", os.path.join(derivatives, name + ".nii.gz"),
-                os.path.join(temp, "first.nii.gz"),
-                os.path.join(temp, "second.nii.gz"),
-            ], check=True)
+            ] + ordered_volumes, check=True)
 
             # Start with the Tag JSON and add fields that only Ctrl has.
             tag_file = "second.json" if second == tag else "first.json"

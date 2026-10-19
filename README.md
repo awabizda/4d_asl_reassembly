@@ -8,7 +8,7 @@ Run `reassemble_asl.py`. For each subject, it:
 
 - identifies control (`Ctrl`) and label (`Tag` or `Label`) DICOM series;
 - groups control and label series by PLD, preferring the Siemens/UIH protocol text such as `PLD2000` and otherwise using DICOM `InversionTime`;
-- converts series with `dcm2niix`, orders control and label by DICOM `AcquisitionTime`, and combines them with FSL `fslmerge`;
+- converts series with `dcm2niix`, orders control and label by DICOM `AcquisitionTime`, and interleaves matching volume pairs with FSL `fslroi` and `fslmerge`;
 - creates an ASL JSON sidecar from the Tag JSON, adds missing Ctrl JSON fields, and explicitly takes `RepetitionTimePreparation` from Ctrl when available;
 - writes `PostLabelingDelay` in seconds, `M0Type` (`Separate` or `Absent`), and `TotalAcquiredPairs` from the number of converted Tag volumes;
 - creates an `_aslcontext.tsv` file;
@@ -79,7 +79,7 @@ File handling and JSON use Python's standard library. NIfTI conversion and mergi
 - Series recognition uses words in `SeriesDescription`; the T1w check also reads `ProtocolName`. Other scanner naming conventions may need changes to these keywords.
 - PLD is read from a `PLD<number>` protocol string when present, otherwise from `InversionTime`. The value is written to BIDS `PostLabelingDelay` in seconds (DICOM time values are commonly in milliseconds). Confirm this interpretation against the acquisition protocol, particularly for other vendors.
 - Pairing uses the first available Tag series with a matching PLD. Repeated acquisitions at the same PLD may be paired ambiguously and should be processed separately.
-- The script assumes that control and label images have matching volumes and that their order can be inferred from series `AcquisitionTime`. Check the output data and context file against the acquisition.
+- The script assumes that control and label images have matching volumes and that their order can be inferred from series `AcquisitionTime`. It interleaves corresponding control/label volumes and stops if their counts differ. Check the output data and context file against the acquisition.
 - M0 series are assigned to PLDs in order, not matched by acquisition time. Review this when there are multiple PLDs or M0 scans.
 - T1w data is converted into each PLD session's `anat` folder, so it can be duplicated when there are multiple PLDs.
 - BIDS defines `ArterialSpinLabelingType`, `BackgroundSuppression`, `BackgroundSuppressionNumberPulses`, and `BackgroundSuppressionPulseTime`. The script preserves these when `dcm2niix` supplies them and can read the standard DICOM ASL contrast tag for `ArterialSpinLabelingType`. Vendor-specific values may require private protocol/CSA data or scanner protocol information. If the ASL type or background suppression cannot be inferred, the script prints a warning and leaves the JSON field out; it does not guess.
